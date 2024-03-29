@@ -1,0 +1,5 @@
+{
+    "perpAddr":     "0x8f8BccE4c180B699F81499005281fA89440D1e95",
+    "poolTknAddr": ["0xc21950e41121C2c52DC8074713514ddBAD678258"],
+    "rpcUrl": ["https://arbitrum.llamarpc.com", "https://arb1.arbitrum.io/rpc"]
+}
