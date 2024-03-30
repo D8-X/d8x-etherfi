@@ -17,8 +17,8 @@ type RpcHandler struct {
 }
 
 type APIBalancesPayload struct {
-	BlockNumber int64            `json:"blockNumber"`
-	Addresses   []common.Address `json:"addresses"`
+	BlockNumber int64    `json:"blockNumber"`
+	Addresses   []string `json:"addresses"`
 }
 
 type APIBalancesResponse struct {

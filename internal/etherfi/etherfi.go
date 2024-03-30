@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/big"
+	"strings"
 	"sync"
 
 	"github.com/D8-X/d8x-etherfi/internal/env"
@@ -63,7 +64,7 @@ func (app *App) Balances(req utils.APIBalancesPayload) (utils.APIBalancesRespons
 	if err != nil {
 		return utils.APIBalancesResponse{}, err
 	}
-	balances, err := app.queryBalances(addr, req.BlockNumber)
+	balances, err := app.queryBalances(addr, req.Addresses, req.BlockNumber)
 	if err != nil {
 		return utils.APIBalancesResponse{}, err
 	}
@@ -73,7 +74,7 @@ func (app *App) Balances(req utils.APIBalancesPayload) (utils.APIBalancesRespons
 	return r, nil
 }
 
-func (app *App) queryBalances(addrs []string, blockNumber int64) ([]utils.Balance, error) {
+func (app *App) queryBalances(addrs, forAddrs []string, blockNumber int64) ([]utils.Balance, error) {
 	shareTknBal, total, err := app.queryShareTknBalances(addrs, blockNumber)
 	if err != nil {
 		return nil, err
@@ -87,13 +88,23 @@ func (app *App) queryBalances(addrs []string, blockNumber int64) ([]utils.Balanc
 	}
 	// attributed WEETH equals shareTknBal/total * poolBalance
 	balances := make([]utils.Balance, 0, len(shareTknBal))
-	for addr, bal := range shareTknBal {
+	if len(forAddrs) == 0 {
+		forAddrs = addrs
+	}
+	for _, addr := range forAddrs {
+		addrLower := strings.ToLower(addr)
+		bal, exists := shareTknBal[addrLower]
+		if !exists {
+			entry := utils.Balance{Address: addr, EffBalance: 0}
+			balances = append(balances, entry)
+			continue
+		}
 		b := big.NewInt(0)
 		b = b.Mul(bal, poolBalance)
 		b = b.Div(b, total)
 		// b is in units of the poolTkn (WEETH)
-		bal := utils.Balance{Address: addr, EffBalance: utils.DecNToFloat(b, app.PoolTknDecimals)}
-		balances = append(balances, bal)
+		entry := utils.Balance{Address: addr, EffBalance: utils.DecNToFloat(b, app.PoolTknDecimals)}
+		balances = append(balances, entry)
 	}
 	return balances, nil
 }
@@ -127,6 +138,7 @@ func (app *App) queryShareTknBalances(addrs []string, blockNumber int64) (map[st
 	total := big.NewInt(0)
 	zero := big.NewInt(0)
 	for _, addr := range addrs {
+		addr := strings.ToLower(addr)
 		if addr == (common.Address{}).Hex() {
 			// skip zero address (burning)
 			continue
