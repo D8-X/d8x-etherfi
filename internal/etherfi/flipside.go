@@ -14,13 +14,13 @@ import (
 
 // flipsideGetAddresses returns all addresses that have received the
 // pool-token within the specified blocks, inclusive [fromBlockNr, toBlockNr]
-func (app *App) flipsideGetAddresses(fromBlockNr, toBlockNr uint64) (*utils.FSResultSet, error) {
+func (app *App) flipsideGetAddresses(fromBlockNr, toBlockNr int64) (*utils.FSResultSet, error) {
 	fmt.Printf("Flipside query blocks (%d, %d]", fromBlockNr, toBlockNr)
 	var err error
 	var id string
 	query := fmt.Sprintf(
 		`SELECT distinct(to_address) FROM arbitrum.core.ez_token_transfers WHERE lower(contract_address)='%s' AND block_number>=%d AND block_number<=%d`,
-		strings.ToLower(app.PoolTknAddr[0].Hex()), fromBlockNr, toBlockNr)
+		strings.ToLower(app.PoolShareTknAddr.Hex()), fromBlockNr, toBlockNr)
 	id, err = createQueryRun(query, app.FlipsideKey)
 	if err != nil {
 		return nil, errors.New("creating flipside query run:" + err.Error())
@@ -31,7 +31,7 @@ func (app *App) flipsideGetAddresses(fromBlockNr, toBlockNr uint64) (*utils.FSRe
 		if err != nil {
 			return nil, errors.New("could not retrieve query status:" + err.Error())
 		}
-		if status != "QUERY_STATE_STREAMING_RESULTS" && status != "QUERY_STATE_RUNNING" {
+		if status != "QUERY_STATE_READY" && status != "QUERY_STATE_STREAMING_RESULTS" && status != "QUERY_STATE_RUNNING" {
 			break
 		}
 		time.Sleep(1 * time.Second)

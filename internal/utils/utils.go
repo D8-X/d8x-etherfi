@@ -2,15 +2,22 @@ package utils
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"os"
 	"regexp"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/ethclient"
 )
 
+type RpcHandler struct {
+	RpcClients []*ethclient.Client
+	lastIdx    int
+}
+
 type APIBalancesPayload struct {
-	BlockNumber uint64           `json:"blockNumber"`
+	BlockNumber int64            `json:"blockNumber"`
 	Addresses   []common.Address `json:"addresses"`
 }
 
@@ -41,9 +48,11 @@ type FSPageStats struct {
 }
 
 type Config struct {
-	PerpAddr    common.Address   `json:"perpAddr"`
-	PoolTknAddr []common.Address `json:"poolTknAddr"`
-	RpcUrls     []string         `json:"rpcUrl"`
+	PerpAddr         common.Address `json:"perpAddr"`
+	PoolTknAddr      common.Address `json:"poolTknAddr"`
+	PoolShareTknAddr common.Address `json:"poolShareTknAddr"`
+	PoolTknDecimals  uint8          `json:"poolTknDecimals"`
+	RpcUrls          []string       `json:"rpcUrl"`
 }
 
 func LoadConfig(filePath string) (Config, error) {
@@ -70,4 +79,29 @@ func IsValidEvmAddr(addr string) bool {
 
 	// Check if the address matches the pattern
 	return re.MatchString(addr)
+}
+
+func (h *RpcHandler) Init(rpcUrls []string) error {
+	h.RpcClients = make([]*ethclient.Client, 0)
+	for _, url := range rpcUrls {
+		rpc, err := ethclient.Dial(url)
+		if err != nil {
+			slog.Error("failed to connect to the Ethereum client " + url + " (skipping this one):" + err.Error())
+			continue
+		}
+		h.RpcClients = append(h.RpcClients, rpc)
+	}
+	if len(h.RpcClients) == 0 {
+		return errors.New("failed to create rpcs")
+	}
+	return nil
+}
+
+func (h *RpcHandler) GetRpc() *ethclient.Client {
+	return h.RpcClients[h.lastIdx]
+}
+
+func (h *RpcHandler) GetNextRpc() *ethclient.Client {
+	h.lastIdx = (h.lastIdx + 1) % len(h.RpcClients)
+	return h.RpcClients[h.lastIdx]
 }
