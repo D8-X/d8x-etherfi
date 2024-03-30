@@ -115,6 +115,8 @@ func (app *App) queryPoolTknTotalBalance(blockNumber int64) (*big.Int, error) {
 
 func (app *App) queryShareTknBalances(addrs []string, blockNumber int64) (map[string]*big.Int, *big.Int, error) {
 	rpc := app.RpcMngr.GetNextRpc()
+	bucket := utils.NewTokenBucket(5, 5)
+	bucket.WaitForToken("bal", true)
 	shareTkn, err := CreateErc20Instance(app.PoolShareTknAddr.Hex(), rpc)
 	if err != nil {
 		slog.Error("queryBalances:" + err.Error())
@@ -129,6 +131,7 @@ func (app *App) queryShareTknBalances(addrs []string, blockNumber int64) (map[st
 			// skip zero address (burning)
 			continue
 		}
+		bucket.WaitForToken("bal", true)
 		bal, err := QueryTokenBalance(shareTkn, addr, b)
 		if err != nil {
 			slog.Error(err.Error())
