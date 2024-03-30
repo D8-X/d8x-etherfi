@@ -5,6 +5,7 @@ go 1.22.1
 require (
 	github.com/ethereum/go-ethereum v1.13.14
 	github.com/go-chi/chi/v5 v5.0.12
+	github.com/golang-migrate/migrate/v4 v4.17.0
 	github.com/spf13/viper v1.18.2
 	golang.org/x/exp v0.0.0-20231110203233-9a3e6036ecaa
 )
@@ -23,8 +24,11 @@ require (
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/gorilla/websocket v1.4.2 // indirect
+	github.com/hashicorp/errwrap v1.1.0 // indirect
+	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/holiman/uint256 v1.2.4 // indirect
+	github.com/lib/pq v1.10.9 // indirect
 	github.com/magiconair/properties v1.8.7 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/mmcloughlin/addchain v0.4.0 // indirect

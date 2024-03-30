@@ -10,7 +10,11 @@ import (
 // RegisterRoutes registers all API routes for D8X-Backend application
 func RegisterRoutes(router chi.Router, app *etherfi.App) {
 
-	router.Get("/holder-contracts", func(w http.ResponseWriter, r *http.Request) {
+	router.Get("/weeth-contracts", func(w http.ResponseWriter, r *http.Request) {
 		onHolderContracts(w, app)
+	})
+
+	router.Post("/weeth-balances", func(w http.ResponseWriter, r *http.Request) {
+		onBalances(w, r, app)
 	})
 }

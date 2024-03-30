@@ -2,10 +2,13 @@ package api
 
 import (
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/D8-X/d8x-etherfi/internal/etherfi"
+	"github.com/D8-X/d8x-etherfi/internal/utils"
 )
 
 func onHolderContracts(w http.ResponseWriter, app *etherfi.App) {
@@ -25,5 +28,44 @@ func onHolderContracts(w http.ResponseWriter, app *etherfi.App) {
 	} else {
 		slog.Info("onHolderContracts request answered")
 	}
+	w.Write(jsonResponse)
+}
+
+func onBalances(w http.ResponseWriter, r *http.Request, app *etherfi.App) {
+	// Read the JSON data from the request body
+	var jsonData []byte
+	if r.Body != nil {
+		defer r.Body.Close()
+		jsonData, _ = io.ReadAll(r.Body)
+	}
+	var req utils.APIBalancesPayload
+	err := json.Unmarshal(jsonData, &req)
+	if err != nil {
+		errMsg := `Wrong argument types. Usage:
+		{
+		   'blockNumber': 195374242,
+		   'addresses': ['0xaCFe...']
+	    }`
+		errMsg = strings.ReplaceAll(errMsg, "\t", "")
+		errMsg = strings.ReplaceAll(errMsg, "\n", "")
+		http.Error(w, string(formatError(errMsg)), http.StatusBadRequest)
+		slog.Info("onBalances invalid request:" + err.Error())
+		return
+	}
+	res, err := app.Balances(req)
+	if err != nil {
+		slog.Error("Could not determine balances:" + err.Error())
+		http.Error(w, string(formatError("request failed")), http.StatusInternalServerError)
+		return
+	}
+	// Set the Content-Type header to application/json
+	w.Header().Set("Content-Type", "application/json")
+	jsonResponse, err := json.Marshal(res)
+	if err != nil {
+		slog.Error("Failed parsing balance response:" + err.Error())
+		http.Error(w, string(formatError("request failed")), http.StatusInternalServerError)
+		return
+	}
+	// Write the JSON response
 	w.Write(jsonResponse)
 }
