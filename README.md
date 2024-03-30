@@ -23,7 +23,7 @@ Payload example:
 ```
 
 Result example:
-The `effective_balance` is provided as a floating number.
+The `effective_balance` is provided as a floating point number.
 
 ```
 {
