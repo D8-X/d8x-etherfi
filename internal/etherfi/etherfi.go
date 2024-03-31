@@ -55,16 +55,24 @@ func NewApp(v *viper.Viper) (*App, error) {
 }
 
 func (app *App) Balances(req utils.APIBalancesPayload) (utils.APIBalancesResponse, error) {
+	addr := req.Addresses
+	var err error
+	if len(addr) == 0 {
+		// user did not provide any addresses, that means the entire
+		// holder universe must be queried
+		// 1. Update token holders via flipside query
+		err = app.refreshReceivers(req.BlockNumber)
+		if err != nil {
+			return utils.APIBalancesResponse{}, err
+		}
+		// 2. Get list of all token holders
+		addr, err = app.dbGetTokenHolders(req.BlockNumber)
+		if err != nil {
+			return utils.APIBalancesResponse{}, err
+		}
+	}
 
-	err := app.refreshReceivers(req.BlockNumber)
-	if err != nil {
-		return utils.APIBalancesResponse{}, err
-	}
-	addr, err := app.dbGetTokenHolders(req.BlockNumber)
-	if err != nil {
-		return utils.APIBalancesResponse{}, err
-	}
-	balances, err := app.queryBalances(addr, req.Addresses, req.BlockNumber)
+	balances, err := app.queryBalances(addr, req.BlockNumber)
 	if err != nil {
 		return utils.APIBalancesResponse{}, err
 	}
@@ -74,7 +82,7 @@ func (app *App) Balances(req utils.APIBalancesPayload) (utils.APIBalancesRespons
 	return r, nil
 }
 
-func (app *App) queryBalances(addrs, forAddrs []string, blockNumber int64) ([]utils.Balance, error) {
+func (app *App) queryBalances(addrs []string, blockNumber int64) ([]utils.Balance, error) {
 	shareTknBal, total, err := app.queryShareTknBalances(addrs, blockNumber)
 	if err != nil {
 		return nil, err
@@ -88,10 +96,7 @@ func (app *App) queryBalances(addrs, forAddrs []string, blockNumber int64) ([]ut
 	}
 	// attributed WEETH equals shareTknBal/total * poolBalance
 	balances := make([]utils.Balance, 0, len(shareTknBal))
-	if len(forAddrs) == 0 {
-		forAddrs = addrs
-	}
-	for _, addr := range forAddrs {
+	for _, addr := range addrs {
 		addrLower := strings.ToLower(addr)
 		bal, exists := shareTknBal[addrLower]
 		if !exists {
@@ -142,11 +147,11 @@ func (app *App) queryShareTknBalances(addrs []string, blockNumber int64) (map[st
 	}
 	zero := big.NewInt(0)
 	for _, addr := range addrs {
-		addr := strings.ToLower(addr)
 		if addr == (common.Address{}).Hex() {
 			// skip zero address (burning)
 			continue
 		}
+		addr := strings.ToLower(addr)
 		bucket.WaitForToken("bal", true)
 		bal, err := QueryTokenBalance(shareTkn, addr, b)
 		if err != nil {
