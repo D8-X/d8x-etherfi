@@ -160,7 +160,7 @@ func (app *App) queryShareTknBalances(addrs []string, blockNumber int64) (map[st
 
 func (app *App) dbGetTokenHolders(blockNum int64) ([]string, error) {
 
-	query := `SELECT distinct(addr) FROM receivers where to_block <= $1`
+	query := `SELECT distinct(addr) FROM receivers where from_block <= $1`
 	rows, err := app.Db.Query(query, blockNum)
 	if err != nil {
 		return nil, errors.New("dbGetTokenHolders" + err.Error())
