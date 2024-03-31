@@ -28,3 +28,13 @@ func QueryTokenBalance(tknCtrct *contracts.Erc20, tknOwnerAddr string, blockNumb
 	bal, err := tknCtrct.BalanceOf(&bind.CallOpts{}, ownerAddr)
 	return bal, err
 }
+
+func QueryTokenTotalSupply(tknCtrct *contracts.Erc20, blockNumber *big.Int) (*big.Int, error) {
+	var opts *bind.CallOpts
+	if blockNumber != nil {
+		opts = new(bind.CallOpts)
+		opts.BlockNumber = blockNumber
+	}
+	bal, err := tknCtrct.TotalSupply(&bind.CallOpts{})
+	return bal, err
+}

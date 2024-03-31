@@ -135,7 +135,11 @@ func (app *App) queryShareTknBalances(addrs []string, blockNumber int64) (map[st
 	}
 	b := big.NewInt(blockNumber)
 	balances := make(map[string]*big.Int)
-	total := big.NewInt(0)
+	total, err := QueryTokenTotalSupply(shareTkn, b)
+	if err != nil {
+		slog.Error("queryBalances:" + err.Error())
+		return nil, nil, err
+	}
 	zero := big.NewInt(0)
 	for _, addr := range addrs {
 		addr := strings.ToLower(addr)
@@ -152,7 +156,6 @@ func (app *App) queryShareTknBalances(addrs []string, blockNumber int64) (map[st
 		if bal.Cmp(zero) == 0 {
 			fmt.Printf("account %s has zero balance, skipping", addr)
 		}
-		total.Add(total, bal)
 		balances[addr] = bal
 	}
 	return balances, total, nil
