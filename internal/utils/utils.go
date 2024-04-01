@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"regexp"
+	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -14,6 +15,8 @@ import (
 type RpcHandler struct {
 	RpcClients []*ethclient.Client
 	lastIdx    int
+	Buckets    map[*ethclient.Client]*TokenBucket
+	mutex      *sync.Mutex
 }
 
 type APIBalancesPayload struct {
@@ -94,7 +97,16 @@ func (h *RpcHandler) Init(rpcUrls []string) error {
 	if len(h.RpcClients) == 0 {
 		return errors.New("failed to create rpcs")
 	}
+	h.mutex = new(sync.Mutex)
+	h.Buckets = make(map[*ethclient.Client]*TokenBucket, len(h.RpcClients))
+	for _, rpc := range h.RpcClients {
+		h.Buckets[rpc] = NewTokenBucket(5, 5)
+	}
 	return nil
+}
+
+func (h *RpcHandler) WaitForToken(rpc *ethclient.Client) {
+	h.Buckets[rpc].WaitForToken("", false)
 }
 
 func (h *RpcHandler) GetRpc() *ethclient.Client {
@@ -102,6 +114,8 @@ func (h *RpcHandler) GetRpc() *ethclient.Client {
 }
 
 func (h *RpcHandler) GetNextRpc() *ethclient.Client {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
 	h.lastIdx = (h.lastIdx + 1) % len(h.RpcClients)
 	return h.RpcClients[h.lastIdx]
 }

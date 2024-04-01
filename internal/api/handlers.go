@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -52,6 +53,14 @@ func onBalances(w http.ResponseWriter, r *http.Request, app *etherfi.App) {
 		slog.Info("onBalances invalid request:" + err.Error())
 		return
 	}
+	// check input
+	for _, addr := range req.Addresses {
+		if !utils.IsValidEvmAddr(addr) {
+			http.Error(w, string(formatError("malformated address in request")), http.StatusBadRequest)
+			slog.Info("malformated address in request")
+			return
+		}
+	}
 	res, err := app.Balances(req)
 	if err != nil {
 		slog.Error("Could not determine balances:" + err.Error())
@@ -66,6 +75,8 @@ func onBalances(w http.ResponseWriter, r *http.Request, app *etherfi.App) {
 		http.Error(w, string(formatError("request failed")), http.StatusInternalServerError)
 		return
 	}
+	msg := fmt.Sprintf("Responding to balance request for %d addresses on block %d", len(req.Addresses), req.BlockNumber)
+	slog.Info(msg)
 	// Write the JSON response
 	w.Write(jsonResponse)
 }

@@ -3,15 +3,15 @@ package etherfi
 import (
 	"database/sql"
 	"errors"
-	"fmt"
 	"log/slog"
 	"math/big"
-	"strings"
 	"sync"
+	"time"
 
 	"github.com/D8-X/d8x-etherfi/internal/env"
 	"github.com/D8-X/d8x-etherfi/internal/utils"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/spf13/viper"
 )
 
@@ -82,29 +82,60 @@ func (app *App) Balances(req utils.APIBalancesPayload) (utils.APIBalancesRespons
 	return r, nil
 }
 
+func retryQuery(blockNumber int64, rpcManager *utils.RpcHandler, queryFunc func(int64, *ethclient.Client) (*big.Int, error)) (*big.Int, error) {
+	var result *big.Int
+	var err error
+	for trial := 0; trial < 4; trial++ {
+		rpc := rpcManager.GetNextRpc()
+		rpcManager.WaitForToken(rpc)
+		result, err = queryFunc(blockNumber, rpc)
+		if err == nil {
+			break
+		}
+		slog.Info("query failed, retrying")
+	}
+	return result, err
+}
+
 func (app *App) queryBalances(addrs []string, blockNumber int64) ([]utils.Balance, error) {
-	shareTknBal, total, err := app.queryShareTknBalances(addrs, blockNumber)
+	var err error
+	var total *big.Int
+	total, err = retryQuery(blockNumber, &app.RpcMngr, app.queryShareTknSupply)
 	if err != nil {
 		return nil, err
 	}
 	if total.Cmp(big.NewInt(0)) == 0 {
 		return []utils.Balance{}, nil
 	}
-	poolBalance, err := app.queryPoolTknTotalBalance(blockNumber)
+
+	// weeth pool balance:
+	var poolBalance *big.Int
+	poolBalance, err = retryQuery(blockNumber, &app.RpcMngr, app.queryPoolTknTotalBalance)
 	if err != nil {
 		return nil, err
 	}
-	// attributed WEETH equals shareTknBal/total * poolBalance
-	balances := make([]utils.Balance, 0, len(shareTknBal))
-	for _, addr := range addrs {
-		addrLower := strings.ToLower(addr)
-		bal, exists := shareTknBal[addrLower]
-		if !exists {
+	// attributed WEETH equals shareTknBal/totalShareTknSupply * poolBalance
+	var bals []*big.Int
+	for trial := 0; trial < 3; trial++ {
+		rpc := app.RpcMngr.GetNextRpc()
+		bals, err = QueryMultiTokenBalance(rpc, app.PoolShareTknAddr.Hex(), addrs, big.NewInt(blockNumber))
+		if err == nil {
+			break
+		}
+		time.Sleep(5 * time.Second)
+	}
+	if err != nil {
+		return nil, err
+	}
+	balances := make([]utils.Balance, 0, len(bals))
+	for k, addr := range addrs {
+		b := big.NewInt(0)
+		bal := bals[k]
+		if bal.Cmp(b) == 0 {
 			entry := utils.Balance{Address: addr, EffBalance: 0}
 			balances = append(balances, entry)
 			continue
 		}
-		b := big.NewInt(0)
 		b = b.Mul(bal, poolBalance)
 		b = b.Div(b, total)
 		// b is in units of the poolTkn (WEETH)
@@ -114,8 +145,7 @@ func (app *App) queryBalances(addrs []string, blockNumber int64) ([]utils.Balanc
 	return balances, nil
 }
 
-func (app *App) queryPoolTknTotalBalance(blockNumber int64) (*big.Int, error) {
-	rpc := app.RpcMngr.GetNextRpc()
+func (app *App) queryPoolTknTotalBalance(blockNumber int64, rpc *ethclient.Client) (*big.Int, error) {
 	poolTkn, err := CreateErc20Instance(app.PoolTknAddr.Hex(), rpc)
 	if err != nil {
 		slog.Error(err.Error())
@@ -129,41 +159,20 @@ func (app *App) queryPoolTknTotalBalance(blockNumber int64) (*big.Int, error) {
 	return bal, nil
 }
 
-func (app *App) queryShareTknBalances(addrs []string, blockNumber int64) (map[string]*big.Int, *big.Int, error) {
-	rpc := app.RpcMngr.GetNextRpc()
-	bucket := utils.NewTokenBucket(5, 5)
-	bucket.WaitForToken("bal", true)
+func (app *App) queryShareTknSupply(blockNumber int64, rpc *ethclient.Client) (*big.Int, error) {
 	shareTkn, err := CreateErc20Instance(app.PoolShareTknAddr.Hex(), rpc)
 	if err != nil {
 		slog.Error("queryBalances:" + err.Error())
-		return nil, nil, err
+		return nil, err
 	}
 	b := big.NewInt(blockNumber)
-	balances := make(map[string]*big.Int)
 	total, err := QueryTokenTotalSupply(shareTkn, b)
 	if err != nil {
 		slog.Error("queryBalances:" + err.Error())
-		return nil, nil, err
+		return nil, err
 	}
-	zero := big.NewInt(0)
-	for _, addr := range addrs {
-		if addr == (common.Address{}).Hex() {
-			// skip zero address (burning)
-			continue
-		}
-		addr := strings.ToLower(addr)
-		bucket.WaitForToken("bal", true)
-		bal, err := QueryTokenBalance(shareTkn, addr, b)
-		if err != nil {
-			slog.Error(err.Error())
-			return nil, nil, err
-		}
-		if bal.Cmp(zero) == 0 {
-			fmt.Printf("account %s has zero balance, skipping", addr)
-		}
-		balances[addr] = bal
-	}
-	return balances, total, nil
+
+	return total, nil
 }
 
 func (app *App) dbGetTokenHolders(blockNum int64) ([]string, error) {

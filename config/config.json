@@ -3,5 +3,5 @@
     "poolShareTknAddr": "0xc21950e41121C2c52DC8074713514ddBAD678258",
     "poolTknAddr" : "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
     "poolTknDecimals": 6,
-    "rpcUrl": ["https://arbitrum.llamarpc.com", "https://arb1.arbitrum.io/rpc"]
+    "rpcUrl": ["https://muddy-dimensional-shadow.arbitrum-mainnet.quiknode.pro/402690c683d9b972686c75b6c42205781c260644/","https://arbitrum.llamarpc.com", "https://arb1.arbitrum.io/rpc"]
 }
