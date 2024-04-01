@@ -11,6 +11,9 @@ services:
     environment:
       DATABASE_DSN: "${DATABASE_DSN}"
       CONFIG_PATH: /config_path
+      API_BIND_ADDR: "${API_BIND_ADDR}"
+      API_PORT: "${API_PORT}"
+      FLIPSIDE_API_KEY: "${FLIPSIDE_API_KEY}"
     logging:
       options:
         max-size: "10m"
