@@ -9,7 +9,7 @@ services:
       # Default svc port is 8001
       - 8001:8001
     environment:
-      DB_DSN: "${DB_DSN1}"
+      DATABASE_DSN: "${DATABASE_DSN}"
       CONFIG_PATH: /config_path
     logging:
       options:
