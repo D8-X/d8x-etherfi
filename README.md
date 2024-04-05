@@ -2,6 +2,11 @@
 
 Etherfi Integration
 
+- Traders get allocated WEETH corresponding to margin account +/- unpaid funding
+- LPs get allocated the entire pool WEETH minus the trader amount. This is more than
+  the provide in liquidity because there are protocol owned funds
+- Restaking of sharepooltoken is not supported
+
 ## GET Endpoint `/contracts`
 
 - GET endpoint with no arguments

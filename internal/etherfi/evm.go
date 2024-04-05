@@ -93,8 +93,8 @@ func QueryTokenTotalSupply(tknCtrct *contracts.Erc20, blockNumber *big.Int) (*bi
 // QueryTraderBalances queries the available cash for
 // each active perpetual account. Available cash is defined as the
 // cash minus unpaid funding. The function returns a mapping of lower-case trader-addr to its
-// entire available cash balance (in all perpetuals of the relevant WEETH pool)
-func (app *App) QueryTraderBalances(blockNumber *big.Int) (map[string]*big.Int, error) {
+// entire available cash balance (in all perpetuals of the relevant WEETH pool) and the total
+func (app *App) QueryTraderBalances(blockNumber *big.Int) (map[string]*big.Int, *big.Int, error) {
 	var opts *bind.CallOpts
 	if blockNumber != nil {
 		opts = new(bind.CallOpts)
@@ -104,24 +104,26 @@ func (app *App) QueryTraderBalances(blockNumber *big.Int) (map[string]*big.Int, 
 	}
 	allTraders := make([]common.Address, 0)
 	allCash := make([]*big.Int, 0)
+
 	for _, perpId := range app.PerpIds {
 		// query all active addresses in the given perp with re-trying on rpc failure
 		traders, err := app.queryActiveAddr(opts, perpId)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		// query cash for the given traders in the current perp with re-trying on rpc failure
 		// unit is decimal N, aligned with pool token decimals
 		cash, err := app.queryAvailCash(opts, perpId, traders)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		allTraders = append(allTraders, traders...)
 		allCash = append(allCash, cash...)
 	}
 	// re-organize data
 	bal := make(map[string]*big.Int)
+	tot := big.NewInt(0)
 	for k, trader := range allTraders {
 		addr := strings.ToLower(trader.Hex())
 		if _, exists := bal[addr]; !exists {
@@ -129,8 +131,9 @@ func (app *App) QueryTraderBalances(blockNumber *big.Int) (map[string]*big.Int, 
 		} else {
 			bal[addr] = new(big.Int).Add(bal[addr], allCash[k])
 		}
+		tot = new(big.Int).Add(tot, allCash[k])
 	}
-	return bal, nil
+	return bal, tot, nil
 }
 
 func (app *App) queryAvailCash(opts *bind.CallOpts, perpId int32, addrs []common.Address) ([]*big.Int, error) {

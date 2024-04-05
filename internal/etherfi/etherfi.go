@@ -3,6 +3,7 @@ package etherfi
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"log/slog"
 	"math/big"
 	"strconv"
@@ -104,8 +105,13 @@ func (app *App) Balances(req utils.APIBalancesPayload) (utils.APIBalancesRespons
 			return utils.APIBalancesResponse{}, err
 		}
 	}
-	app.QueryTraderBalances(big.NewInt(int64(req.BlockNumber)))
-	balances, err := app.queryBalances(addr, req.BlockNumber)
+	traders, total, err := app.QueryTraderBalances(big.NewInt(int64(req.BlockNumber)))
+	if err != nil {
+		slog.Error("Unable to get trader balances:" + err.Error())
+		return utils.APIBalancesResponse{}, err
+	}
+	fmt.Println("found ", len(traders), "traders")
+	balances, err := app.QueryLpBalances(addr, total, req.BlockNumber)
 	if err != nil {
 		return utils.APIBalancesResponse{}, err
 	}
@@ -130,7 +136,9 @@ func retryQuery(blockNumber int64, rpcManager *utils.RpcHandler, queryFunc func(
 	return result, err
 }
 
-func (app *App) queryBalances(addrs []string, blockNumber int64) ([]utils.Balance, error) {
+// QueryLpBalances gets the balances of all sharepooltoken holders
+// We supply the total trader margin account balance to this function
+func (app *App) QueryLpBalances(addrs []string, traderTotal *big.Int, blockNumber int64) ([]utils.Balance, error) {
 	var err error
 	var total *big.Int
 	total, err = retryQuery(blockNumber, &app.RpcMngr, app.queryShareTknSupply)
@@ -147,7 +155,8 @@ func (app *App) queryBalances(addrs []string, blockNumber int64) ([]utils.Balanc
 	if err != nil {
 		return nil, err
 	}
-	// attributed WEETH equals shareTknBal/totalShareTknSupply * poolBalance
+	poolBalance = new(big.Int).Sub(poolBalance, traderTotal)
+	// attributed WEETH equals shareTknBal/totalShareTknSupply * (poolBalance-traderTotal)
 	var bals []*big.Int
 	for trial := 0; trial < 3; trial++ {
 		rpc := app.RpcMngr.GetNextRpc()
