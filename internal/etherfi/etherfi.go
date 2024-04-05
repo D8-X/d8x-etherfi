@@ -5,11 +5,14 @@ import (
 	"errors"
 	"log/slog"
 	"math/big"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/D8-X/d8x-etherfi/internal/env"
 	"github.com/D8-X/d8x-etherfi/internal/utils"
+	"github.com/D8-X/d8x-futures-go-sdk/pkg/d8x_futures"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/spf13/viper"
@@ -20,10 +23,13 @@ type App struct {
 	PerpProxy        common.Address
 	PoolShareTknAddr common.Address
 	PoolTknAddr      common.Address
+	PoolId           uint16  // weeth pool
+	PerpIds          []int32 // relevant perpetual ids
 	PoolTknDecimals  uint8
 	RpcMngr          utils.RpcHandler
 	FlipsideKey      string
 	Mutex            sync.Mutex
+	Sdk              *d8x_futures.SdkRO
 }
 
 func NewApp(v *viper.Viper) (*App, error) {
@@ -31,15 +37,36 @@ func NewApp(v *viper.Viper) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	var sdkRo d8x_futures.SdkRO
+	err = sdkRo.New(strconv.Itoa(int(config.ChainId)))
+	if err != nil {
+		return nil, err
+	}
+	perpIds := make([]int32, 0)
+	for _, perp := range sdkRo.Info.Perpetuals {
+		if perp.PoolId != config.PoolId {
+			continue
+		}
+		perpIds = append(perpIds, perp.Id)
+	}
+	var marginTkn, shareTkn common.Address
+	for _, pool := range sdkRo.Info.Pools {
+		if pool.PoolId == config.PoolId {
+			marginTkn = pool.PoolMarginTokenAddr
+			shareTkn = pool.ShareTokenAddr
+			break
+		}
+	}
+
 	app := App{
 		PerpProxy:        config.PerpAddr,
-		PoolShareTknAddr: config.PoolShareTknAddr,
-		PoolTknAddr:      config.PoolTknAddr,
-		PoolTknDecimals:  config.PoolTknDecimals,
+		PoolId:           uint16(config.PoolId),
+		PerpIds:          perpIds,
+		PoolShareTknAddr: shareTkn,
+		PoolTknAddr:      marginTkn,
+		Sdk:              &sdkRo,
 	}
-	if app.PoolTknDecimals <= 0 {
-		return nil, errors.New("invalid pool tkn decimals")
-	}
+
 	if app.PoolShareTknAddr == (common.Address{}) || app.PoolTknAddr == (common.Address{}) {
 		return nil, errors.New("invalid token address")
 	}
@@ -47,6 +74,12 @@ func NewApp(v *viper.Viper) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	dec, err := QueryTokenDecimals(marginTkn.Hex(), app.RpcMngr.GetRpc())
+	if err != nil {
+		return nil, err
+	}
+	app.PoolTknDecimals = dec
+
 	app.FlipsideKey = v.GetString(env.FLIPSIDE_API_KEY)
 	if app.FlipsideKey == "" {
 		return nil, errors.New("no flipside key found")
@@ -71,7 +104,7 @@ func (app *App) Balances(req utils.APIBalancesPayload) (utils.APIBalancesRespons
 			return utils.APIBalancesResponse{}, err
 		}
 	}
-
+	app.QueryTraderBalances(big.NewInt(int64(req.BlockNumber)))
 	balances, err := app.queryBalances(addr, req.BlockNumber)
 	if err != nil {
 		return utils.APIBalancesResponse{}, err
@@ -157,6 +190,16 @@ func (app *App) queryPoolTknTotalBalance(blockNumber int64, rpc *ethclient.Clien
 		return nil, err
 	}
 	return bal, nil
+}
+
+// QueryTokenDecimals gets the token decimals from an ERC-20 token
+func QueryTokenDecimals(tokenAddr string, rpc *ethclient.Client) (uint8, error) {
+	tkn, err := CreateErc20Instance(tokenAddr, rpc)
+	if err != nil {
+		slog.Error(err.Error())
+		return 0, err
+	}
+	return tkn.Decimals(&bind.CallOpts{})
 }
 
 func (app *App) queryShareTknSupply(blockNumber int64, rpc *ethclient.Client) (*big.Int, error) {
