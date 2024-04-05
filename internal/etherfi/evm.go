@@ -2,6 +2,7 @@ package etherfi
 
 import (
 	"context"
+	"log/slog"
 	"math/big"
 	"strings"
 
@@ -124,8 +125,13 @@ func (app *App) QueryTraderBalances(blockNumber *big.Int) (map[string]*big.Int, 
 	// re-organize data
 	bal := make(map[string]*big.Int)
 	tot := big.NewInt(0)
+	proxyAddr := strings.ToLower((app.PerpProxy.Hex()))
 	for k, trader := range allTraders {
 		addr := strings.ToLower(trader.Hex())
+		if addr == proxyAddr {
+			slog.Info("oops perp trader found, we don't add the perp")
+			continue
+		}
 		if _, exists := bal[addr]; !exists {
 			bal[addr] = new(big.Int).Set(allCash[k])
 		} else {

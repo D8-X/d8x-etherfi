@@ -13,6 +13,7 @@ import (
 	"github.com/D8-X/d8x-etherfi/internal/env"
 	"github.com/D8-X/d8x-etherfi/internal/utils"
 	"github.com/D8-X/d8x-futures-go-sdk/pkg/d8x_futures"
+	d8xutils "github.com/D8-X/d8x-futures-go-sdk/utils"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -105,20 +106,56 @@ func (app *App) Balances(req utils.APIBalancesPayload) (utils.APIBalancesRespons
 			return utils.APIBalancesResponse{}, err
 		}
 	}
-	traders, total, err := app.QueryTraderBalances(big.NewInt(int64(req.BlockNumber)))
+	traderBalcs, total, err := app.QueryTraderBalances(big.NewInt(int64(req.BlockNumber)))
 	if err != nil {
 		slog.Error("Unable to get trader balances:" + err.Error())
 		return utils.APIBalancesResponse{}, err
 	}
-	fmt.Println("found ", len(traders), "traders")
-	balances, err := app.QueryLpBalances(addr, total, req.BlockNumber)
+	fmt.Println("found ", len(traderBalcs), "traders")
+	lpBalcs, err := app.QueryLpBalances(addr, total, req.BlockNumber)
 	if err != nil {
 		return utils.APIBalancesResponse{}, err
 	}
+	// combine balances. If addresses were provided we report the balance for each of those addresses,
+	// even if zero.
+	balances := combineBalances(addr, len(req.Addresses) > 0, lpBalcs, traderBalcs, app.PoolTknDecimals)
 	var r utils.APIBalancesResponse
 	r.Result = balances
 	// create
 	return r, nil
+}
+
+// combineBalances goes through all the addresses and reconciles the balances
+func combineBalances(addrs []string, exactAddr bool, lpBal []*big.Int, traderBal map[string]*big.Int, decN uint8) []utils.Balance {
+	balances := make([]utils.Balance, 0, len(addrs)+len(traderBal))
+	z := big.NewInt(0)
+	for k, addr := range addrs {
+		bal := new(big.Int).Set(lpBal[k])
+		if _, exists := traderBal[addr]; exists {
+			bal = new(big.Int).Add(bal, traderBal[addr])
+			traderBal[addr] = big.NewInt(0)
+		}
+		if bal.Cmp(z) == 0 {
+			if exactAddr {
+				balances = append(balances, utils.Balance{Address: addr, EffBalance: 0})
+			}
+			continue
+		}
+		balances = append(balances, utils.Balance{Address: addr, EffBalance: d8xutils.DecNToFloat(bal, decN)})
+	}
+	if exactAddr {
+		return balances
+	}
+	// exactAddr=false and we have to add all WEETH owners to the list
+	// hence, we also add the traders to the list. traders that are also LPs were set to zero in the
+	// code above
+	for addr, bal := range traderBal {
+		if bal.Cmp(z) == 0 {
+			continue
+		}
+		balances = append(balances, utils.Balance{Address: addr, EffBalance: d8xutils.DecNToFloat(bal, decN)})
+	}
+	return balances
 }
 
 func retryQuery(blockNumber int64, rpcManager *utils.RpcHandler, queryFunc func(int64, *ethclient.Client) (*big.Int, error)) (*big.Int, error) {
@@ -136,9 +173,9 @@ func retryQuery(blockNumber int64, rpcManager *utils.RpcHandler, queryFunc func(
 	return result, err
 }
 
-// QueryLpBalances gets the balances of all sharepooltoken holders
-// We supply the total trader margin account balance to this function
-func (app *App) QueryLpBalances(addrs []string, traderTotal *big.Int, blockNumber int64) ([]utils.Balance, error) {
+// QueryLpBalances gets the attributed WEETH balances of sharepooltoken holders with given addresses
+// We supply the total trader margin account balance 'traderTotal' to this function
+func (app *App) QueryLpBalances(addrs []string, traderTotal *big.Int, blockNumber int64) ([]*big.Int, error) {
 	var err error
 	var total *big.Int
 	total, err = retryQuery(blockNumber, &app.RpcMngr, app.queryShareTknSupply)
@@ -146,7 +183,7 @@ func (app *App) QueryLpBalances(addrs []string, traderTotal *big.Int, blockNumbe
 		return nil, err
 	}
 	if total.Cmp(big.NewInt(0)) == 0 {
-		return []utils.Balance{}, nil
+		return nil, nil
 	}
 
 	// weeth pool balance:
@@ -157,10 +194,11 @@ func (app *App) QueryLpBalances(addrs []string, traderTotal *big.Int, blockNumbe
 	}
 	poolBalance = new(big.Int).Sub(poolBalance, traderTotal)
 	// attributed WEETH equals shareTknBal/totalShareTknSupply * (poolBalance-traderTotal)
-	var bals []*big.Int
+	var balcs []*big.Int
 	for trial := 0; trial < 3; trial++ {
 		rpc := app.RpcMngr.GetNextRpc()
-		bals, err = QueryMultiTokenBalance(rpc, app.PoolShareTknAddr.Hex(), addrs, big.NewInt(blockNumber))
+		app.RpcMngr.WaitForToken(rpc)
+		balcs, err = QueryMultiTokenBalance(rpc, app.PoolShareTknAddr.Hex(), addrs, big.NewInt(blockNumber))
 		if err == nil {
 			break
 		}
@@ -169,20 +207,17 @@ func (app *App) QueryLpBalances(addrs []string, traderTotal *big.Int, blockNumbe
 	if err != nil {
 		return nil, err
 	}
-	balances := make([]utils.Balance, 0, len(bals))
-	for k, addr := range addrs {
+	balances := make([]*big.Int, 0, len(balcs))
+	for _, bal := range balcs {
 		b := big.NewInt(0)
-		bal := bals[k]
 		if bal.Cmp(b) == 0 {
-			entry := utils.Balance{Address: addr, EffBalance: 0}
-			balances = append(balances, entry)
+			balances = append(balances, b)
 			continue
 		}
 		b = b.Mul(bal, poolBalance)
 		b = b.Div(b, total)
 		// b is in units of the poolTkn (WEETH)
-		entry := utils.Balance{Address: addr, EffBalance: utils.DecNToFloat(b, app.PoolTknDecimals)}
-		balances = append(balances, entry)
+		balances = append(balances, b)
 	}
 	return balances, nil
 }
@@ -244,7 +279,7 @@ func (app *App) dbGetTokenHolders(blockNum int64) ([]string, error) {
 	return addr, nil
 }
 
-// refreshReceivers ensures we collected all current and past token holders
+// refreshReceivers ensures we collected all current and past holders of the share token,
 // up to the given block number
 func (app *App) refreshReceivers(toBlockNumber int64) error {
 	// prevent overlapping queries via flipside for block numbers
