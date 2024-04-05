@@ -86,7 +86,7 @@ func QueryTokenTotalSupply(tknCtrct *contracts.Erc20, blockNumber *big.Int) (*bi
 		opts = new(bind.CallOpts)
 		opts.BlockNumber = blockNumber
 	}
-	bal, err := tknCtrct.TotalSupply(&bind.CallOpts{})
+	bal, err := tknCtrct.TotalSupply(opts)
 	return bal, err
 }
 
