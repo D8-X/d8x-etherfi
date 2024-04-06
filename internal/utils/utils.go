@@ -11,7 +11,7 @@ import (
 )
 
 type APIBalancesPayload struct {
-	BlockNumber int64    `json:"blockNumber"`
+	BlockNumber uint64   `json:"blockNumber"`
 	Addresses   []string `json:"addresses"`
 }
 

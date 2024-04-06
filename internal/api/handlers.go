@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/D8-X/d8x-etherfi/internal/etherfi"
@@ -32,6 +33,32 @@ func onHolderContracts(w http.ResponseWriter, app *etherfi.App) {
 	w.Write(jsonResponse)
 }
 
+func onGetBalances(w http.ResponseWriter, r *http.Request, app *etherfi.App) {
+	blockReq := r.URL.Query().Get("blockNumber")
+	addrs := r.URL.Query()["addresses"]
+	block := app.DBGetLatestBlock()
+	if blockReq != "" {
+		blockNum, err := strconv.Atoi(blockReq)
+		if err != nil {
+			block = min(block, uint64(blockNum))
+		}
+	}
+	// check input
+	for k, addr := range addrs {
+		if !utils.IsValidEvmAddr(addr) {
+			http.Error(w, string(formatError("malformated address in request")), http.StatusBadRequest)
+			slog.Info("malformated address in get request")
+			return
+		}
+		addrs[k] = strings.ToLower(addrs[k])
+	}
+	req := utils.APIBalancesPayload{
+		BlockNumber: block,
+		Addresses:   addrs,
+	}
+	balanceResponse(req, w, app)
+}
+
 func onBalances(w http.ResponseWriter, r *http.Request, app *etherfi.App) {
 	// Read the JSON data from the request body
 	var jsonData []byte
@@ -54,12 +81,13 @@ func onBalances(w http.ResponseWriter, r *http.Request, app *etherfi.App) {
 		return
 	}
 	// check input
-	for _, addr := range req.Addresses {
+	for k, addr := range req.Addresses {
 		if !utils.IsValidEvmAddr(addr) {
 			http.Error(w, string(formatError("malformated address in request")), http.StatusBadRequest)
 			slog.Info("malformated address in request")
 			return
 		}
+		req.Addresses[k] = strings.ToLower(req.Addresses[k])
 	}
 	lb := app.DBGetLatestBlock()
 	if uint64(req.BlockNumber) > lb {
@@ -68,6 +96,11 @@ func onBalances(w http.ResponseWriter, r *http.Request, app *etherfi.App) {
 		http.Error(w, string(formatError("requested block not available")), http.StatusInternalServerError)
 		return
 	}
+	balanceResponse(req, w, app)
+}
+
+// balanceResponse is shared between the GET and POST request
+func balanceResponse(req utils.APIBalancesPayload, w http.ResponseWriter, app *etherfi.App) {
 	res, err := app.Balances(req)
 	if err != nil {
 		slog.Error("Could not determine balances:" + err.Error())

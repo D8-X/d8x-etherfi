@@ -41,6 +41,13 @@ The `effective_balance` is provided as a floating point number.
 }
 ```
 
+# GET Endpoint `/get-balances`
+
+- Optional argument: `blockNumber=30021418`
+- Optional argument: `http://127.0.0.1:8001/get-balances?addresses=0x2163cf2f1B7c331C0C757E068D00eFC9A707A1D7&addresses=0x0c0421445b9b4f721235676363b4be6d94d049d4`
+
+Same response as the corresponding post request `/balances`
+
 # Dev
 
 ## Contracts

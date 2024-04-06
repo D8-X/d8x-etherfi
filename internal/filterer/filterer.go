@@ -110,6 +110,9 @@ func (F *Filterer) FilterEvents(eventType EventType, startBlock, endBlock uint64
 	if endBlock == 0 {
 		endBlock = nowBlock
 	}
+	if endBlock < startBlock {
+		return nil, 0, errors.New("endblock must be after startblock")
+	}
 	var ctrct interface{}
 	switch eventType {
 	case SetDelegateEvent:

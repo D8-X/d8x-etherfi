@@ -113,6 +113,10 @@ func (app *App) Balances(req utils.APIBalancesPayload) (utils.APIBalancesRespons
 		slog.Error("Unable to get trader balances:" + err.Error())
 		return utils.APIBalancesResponse{}, err
 	}
+	err = app.reassignTraderBalances(traderBalcs, req.BlockNumber)
+	if err != nil {
+		return utils.APIBalancesResponse{}, err
+	}
 	fmt.Println("found ", len(traderBalcs), "traders")
 	lpBalcs, err := app.QueryLpBalances(addr, total, req.BlockNumber)
 	if err != nil {
@@ -125,6 +129,30 @@ func (app *App) Balances(req utils.APIBalancesPayload) (utils.APIBalancesRespons
 	r.Result = balances
 	// create
 	return r, nil
+}
+
+// reassignTraderBalances re-assigns balances from the 'trader-account' to the 'delegate' in
+// case the event was emitted with index DELEGATE_IDX_STRATEGY = 2. As a result, the traders
+// of the hedge-strategy (delegates) get assigned the WEETH that is owned by the strategy-wallet.
+// The strategy wallet is a private key generated from the delegate wallet but the delegate does
+// not have the keys (directly).
+func (app *App) reassignTraderBalances(traderBal map[string]*big.Int, block uint64) error {
+	addrs, delegates, err := app.DbFindStrategyDelegates(block)
+	if err != nil {
+		slog.Error("reassignTraderBalance did not succeed")
+		return err
+	}
+	for k, d := range delegates {
+		// re-assign
+		if _, exists := traderBal[d]; exists {
+			if _, exists := traderBal[addrs[k]]; exists {
+				traderBal[d] = new(big.Int).Add(traderBal[d], traderBal[addrs[k]])
+				traderBal[addrs[k]] = big.NewInt(0)
+			}
+		}
+
+	}
+	return nil
 }
 
 // combineBalances goes through all the addresses and reconciles the balances
@@ -160,7 +188,7 @@ func combineBalances(addrs []string, exactAddr bool, lpBal []*big.Int, traderBal
 	return balances
 }
 
-func retryQuery(blockNumber int64, rpcManager *utils.RpcHandler, queryFunc func(int64, *ethclient.Client) (*big.Int, error)) (*big.Int, error) {
+func retryQuery(blockNumber uint64, rpcManager *utils.RpcHandler, queryFunc func(uint64, *ethclient.Client) (*big.Int, error)) (*big.Int, error) {
 	var result *big.Int
 	var err error
 	for trial := 0; trial < 4; trial++ {
@@ -177,7 +205,7 @@ func retryQuery(blockNumber int64, rpcManager *utils.RpcHandler, queryFunc func(
 
 // QueryLpBalances gets the attributed WEETH balances of sharepooltoken holders with given addresses
 // We supply the total trader margin account balance 'traderTotal' to this function
-func (app *App) QueryLpBalances(addrs []string, traderTotal *big.Int, blockNumber int64) ([]*big.Int, error) {
+func (app *App) QueryLpBalances(addrs []string, traderTotal *big.Int, blockNumber uint64) ([]*big.Int, error) {
 	var err error
 	var total *big.Int
 	total, err = retryQuery(blockNumber, &app.RpcMngr, app.queryShareTknSupply)
@@ -200,7 +228,7 @@ func (app *App) QueryLpBalances(addrs []string, traderTotal *big.Int, blockNumbe
 	for trial := 0; trial < 3; trial++ {
 		rpc := app.RpcMngr.GetNextRpc()
 		app.RpcMngr.WaitForToken(rpc)
-		balcs, err = QueryMultiTokenBalance(rpc, app.PoolShareTknAddr.Hex(), addrs, big.NewInt(blockNumber))
+		balcs, err = QueryMultiTokenBalance(rpc, app.PoolShareTknAddr.Hex(), addrs, big.NewInt(int64(blockNumber)))
 		if err == nil {
 			break
 		}
@@ -224,13 +252,13 @@ func (app *App) QueryLpBalances(addrs []string, traderTotal *big.Int, blockNumbe
 	return balances, nil
 }
 
-func (app *App) queryPoolTknTotalBalance(blockNumber int64, rpc *ethclient.Client) (*big.Int, error) {
+func (app *App) queryPoolTknTotalBalance(blockNumber uint64, rpc *ethclient.Client) (*big.Int, error) {
 	poolTkn, err := CreateErc20Instance(app.PoolTknAddr.Hex(), rpc)
 	if err != nil {
 		slog.Error(err.Error())
 		return nil, err
 	}
-	bal, err := QueryTokenBalance(poolTkn, app.PerpProxy.Hex(), big.NewInt(blockNumber))
+	bal, err := QueryTokenBalance(poolTkn, app.PerpProxy.Hex(), big.NewInt(int64(blockNumber)))
 	if err != nil {
 		slog.Error(err.Error())
 		return nil, err
@@ -248,13 +276,13 @@ func QueryTokenDecimals(tokenAddr string, rpc *ethclient.Client) (uint8, error) 
 	return tkn.Decimals(&bind.CallOpts{})
 }
 
-func (app *App) queryShareTknSupply(blockNumber int64, rpc *ethclient.Client) (*big.Int, error) {
+func (app *App) queryShareTknSupply(blockNumber uint64, rpc *ethclient.Client) (*big.Int, error) {
 	shareTkn, err := CreateErc20Instance(app.PoolShareTknAddr.Hex(), rpc)
 	if err != nil {
 		slog.Error("queryBalances:" + err.Error())
 		return nil, err
 	}
-	b := big.NewInt(blockNumber)
+	b := big.NewInt(int64(blockNumber))
 	total, err := QueryTokenTotalSupply(shareTkn, b)
 	if err != nil {
 		slog.Error("queryBalances:" + err.Error())
@@ -262,117 +290,4 @@ func (app *App) queryShareTknSupply(blockNumber int64, rpc *ethclient.Client) (*
 	}
 
 	return total, nil
-}
-
-// dbGetShareTokenHolders looks for all addresses that have
-// ever received a pool share token up to the given block
-func (app *App) dbGetShareTokenHolders(blockNum int64) ([]string, error) {
-
-	query := `SELECT distinct(addr) FROM sh_tkn_transfer where from_block <= $1`
-	rows, err := app.Db.Query(query, blockNum)
-	if err != nil {
-		return nil, errors.New("dbGetTokenHolders" + err.Error())
-	}
-	defer rows.Close()
-	addr := make([]string, 0)
-	for rows.Next() {
-		var a string
-		rows.Scan(&a)
-		addr = append(addr, a)
-	}
-	return addr, nil
-}
-
-// DBGetLatestBlock looks for the last block for which data has been
-// collected for both the delegation and transfer events
-func (app *App) DBGetLatestBlock() uint64 {
-	return min(app.DbGetDelegateStartBlock(), app.DbGetShTknTransferStartBlock())
-}
-
-// DbGetStartBlock looks up the latest block for which
-// we have stored receiver addresses
-func (app *App) DbGetShTknTransferStartBlock() uint64 {
-	query := `SELECT coalesce(max(to_block),0) FROM sh_tkn_transfer`
-	var block uint64
-	err := app.Db.QueryRow(query).Scan(&block)
-	if err == sql.ErrNoRows {
-		return block
-	}
-	if err != nil {
-		slog.Error("Error for DbGetStartBlock" + err.Error())
-		return block
-	}
-	return max(app.Genesis, block+1)
-}
-
-// DbGetStartBlock looks up the latest block for which
-// we have stored receiver addresses
-func (app *App) DbGetDelegateStartBlock() uint64 {
-	query := `SELECT coalesce(max(to_block),0) FROM delegates`
-	var block uint64
-	err := app.Db.QueryRow(query).Scan(&block)
-	if err == sql.ErrNoRows {
-		return block
-	}
-	if err != nil {
-		slog.Error("Error for DbGetStartBlock" + err.Error())
-		return block
-	}
-	return max(app.Genesis, block+1)
-}
-
-// DBInsertShTknTransfer inserts the results FSResultSet for flipsGetPoolShrTknHolders into the database
-func (app *App) DBInsertShTknTransfer(transfers []interface{}, toBlock uint64) error {
-	// Prepare the insert statement
-	stmt, err := app.Db.Prepare(`INSERT INTO sh_tkn_transfer("from", "to", block, to_block, sh_tkn, chain_id) VALUES($1, $2, $3, $4, $5, $6)`)
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-	chainId := app.Sdk.ChainConfig.ChainId
-	tkn_addr := app.PoolShareTknAddr.Hex()
-	// Insert each address
-	for _, row := range transfers {
-		transfer := row.(filterer.Transfer)
-		_, err := stmt.Exec(transfer.From, transfer.To, transfer.BlockNr, toBlock, tkn_addr, chainId)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// DBInsertDelegates inserts the delegate array into the database
-func (app *App) DBInsertDelegates(delegates []interface{}, toBlock uint64) error {
-	// Prepare the insert statement
-	stmt, err := app.Db.Prepare("INSERT INTO delegates(addr, delegate, block, index, to_block, chain_id) VALUES($1, $2, $3, $4, $5, $6)")
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-	chainId := app.Sdk.ChainConfig.ChainId
-	// Insert each event
-	for _, row := range delegates {
-		dlgt := row.(filterer.Delegate)
-		_, err := stmt.Exec(dlgt.Addr, dlgt.Delegate, dlgt.BlockNr, dlgt.Index, toBlock, chainId)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// ConnectDB connects to the database and assigns the connection to the app struct
-func (a *App) ConnectDB(connStr string) error {
-	// Connect to database
-	// From documentation: "The returned DB is safe for concurrent use by multiple goroutines and
-	// maintains its own pool of idle connections. Thus, the Open function should be called just once.
-	// It is rarely necessary to close a DB."
-	db, err := sql.Open("postgres", connStr)
-	if err != nil {
-		return err
-	}
-	a.Db = db
-	return nil
 }

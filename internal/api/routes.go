@@ -14,6 +14,10 @@ func RegisterRoutes(router chi.Router, app *etherfi.App) {
 		onHolderContracts(w, app)
 	})
 
+	router.Get("/get-balances", func(w http.ResponseWriter, r *http.Request) {
+		onGetBalances(w, r, app)
+	})
+
 	router.Post("/balances", func(w http.ResponseWriter, r *http.Request) {
 		onBalances(w, r, app)
 	})
