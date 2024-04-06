@@ -28,6 +28,7 @@ type Delegate struct {
 }
 
 type Transfer struct {
+	From    string
 	To      string
 	BlockNr int
 }
@@ -65,6 +66,7 @@ func (F *Filterer) processTransferEvents(iterator interface{}, logs *[]interface
 	for it.Next() {
 		var transfer Transfer
 		event := it.Event
+		transfer.From = strings.ToLower(event.From.Hex())
 		transfer.To = strings.ToLower(event.To.Hex())
 		transfer.BlockNr = int(it.Event.Raw.BlockNumber)
 		*logs = append(*logs, transfer)

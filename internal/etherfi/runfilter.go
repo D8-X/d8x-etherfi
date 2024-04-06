@@ -29,7 +29,7 @@ func (app *App) RunFilter() {
 
 	go func() {
 		defer wg.Done()
-		transferBlock := app.DbGetReceiverStartBlock()
+		transferBlock := app.DbGetShTknTransferStartBlock()
 		transfers, upToBlockT, err := app.Filterer.FilterTransferEvts(transferBlock, 0)
 		if err != nil {
 			slog.Error(err.Error())
@@ -37,7 +37,7 @@ func (app *App) RunFilter() {
 		}
 		msg := fmt.Sprintf("FilterTransferEvts found %d transfer events", len(transfers))
 		slog.Info(msg)
-		err = app.DBInsertReceivers(transfers, upToBlockT)
+		err = app.DBInsertShTknTransfer(transfers, upToBlockT)
 		if err != nil {
 			slog.Error(err.Error())
 		}

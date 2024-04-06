@@ -268,7 +268,7 @@ func (app *App) queryShareTknSupply(blockNumber int64, rpc *ethclient.Client) (*
 // ever received a pool share token up to the given block
 func (app *App) dbGetShareTokenHolders(blockNum int64) ([]string, error) {
 
-	query := `SELECT distinct(addr) FROM receivers where from_block <= $1`
+	query := `SELECT distinct(addr) FROM sh_tkn_transfer where from_block <= $1`
 	rows, err := app.Db.Query(query, blockNum)
 	if err != nil {
 		return nil, errors.New("dbGetTokenHolders" + err.Error())
@@ -286,13 +286,13 @@ func (app *App) dbGetShareTokenHolders(blockNum int64) ([]string, error) {
 // DBGetLatestBlock looks for the last block for which data has been
 // collected for both the delegation and transfer events
 func (app *App) DBGetLatestBlock() uint64 {
-	return min(app.DbGetDelegateStartBlock(), app.DbGetReceiverStartBlock())
+	return min(app.DbGetDelegateStartBlock(), app.DbGetShTknTransferStartBlock())
 }
 
 // DbGetStartBlock looks up the latest block for which
 // we have stored receiver addresses
-func (app *App) DbGetReceiverStartBlock() uint64 {
-	query := `SELECT coalesce(max(to_block),0) FROM receivers`
+func (app *App) DbGetShTknTransferStartBlock() uint64 {
+	query := `SELECT coalesce(max(to_block),0) FROM sh_tkn_transfer`
 	var block uint64
 	err := app.Db.QueryRow(query).Scan(&block)
 	if err == sql.ErrNoRows {
@@ -321,10 +321,10 @@ func (app *App) DbGetDelegateStartBlock() uint64 {
 	return max(app.Genesis, block+1)
 }
 
-// DBInsertReceivers inserts the results FSResultSet for flipsGetPoolShrTknHolders into the database
-func (app *App) DBInsertReceivers(transfers []interface{}, toBlock uint64) error {
+// DBInsertShTknTransfer inserts the results FSResultSet for flipsGetPoolShrTknHolders into the database
+func (app *App) DBInsertShTknTransfer(transfers []interface{}, toBlock uint64) error {
 	// Prepare the insert statement
-	stmt, err := app.Db.Prepare("INSERT INTO receivers(addr, block, to_block, pool_tkn, chain_id) VALUES($1, $2, $3, $4, $5)")
+	stmt, err := app.Db.Prepare(`INSERT INTO sh_tkn_transfer("from", "to", block, to_block, sh_tkn, chain_id) VALUES($1, $2, $3, $4, $5, $6)`)
 	if err != nil {
 		return err
 	}
@@ -334,7 +334,7 @@ func (app *App) DBInsertReceivers(transfers []interface{}, toBlock uint64) error
 	// Insert each address
 	for _, row := range transfers {
 		transfer := row.(filterer.Transfer)
-		_, err := stmt.Exec(transfer.To, transfer.BlockNr, toBlock, tkn_addr, chainId)
+		_, err := stmt.Exec(transfer.From, transfer.To, transfer.BlockNr, toBlock, tkn_addr, chainId)
 		if err != nil {
 			return err
 		}
