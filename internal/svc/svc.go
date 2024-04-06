@@ -45,6 +45,9 @@ func Run() {
 	} else {
 		slog.Info("migrations run completed")
 	}
+	// start go routine to periodically filter for events
+	go app.RunFilter()
+
 	api.StartApiServer(app, v.GetString(env.API_BIND_ADDR), v.GetString(env.API_PORT))
 }
 

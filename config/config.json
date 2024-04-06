@@ -1,7 +1,7 @@
 {
-    "perpAddr":     "0x8f8BccE4c180B699F81499005281fA89440D1e95",
-    "poolShareTknAddr": "0xc21950e41121C2c52DC8074713514ddBAD678258",
-    "poolTknAddr" : "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
-    "poolTknDecimals": 6,
-    "rpcUrl": ["https://muddy-dimensional-shadow.arbitrum-mainnet.quiknode.pro/402690c683d9b972686c75b6c42205781c260644/","https://arbitrum.llamarpc.com", "https://arb1.arbitrum.io/rpc"]
+    "chainId": 421614,
+    "poolId": 2,
+    "genesisBlock": 30021418,
+    "rpcUrl": ["https://crimson-delicate-friday.arbitrum-sepolia.quiknode.pro/42be8b2bfd0eb2536ad42e02bf4825e9cb1cb799/", "https://arbitrum-sepolia.blockpi.network/v1/rpc/public", "https://public.stackup.sh/api/v1/node/arbitrum-sepolia"],
+    "rpcUrlFilterer": ["https://sepolia-rollup.arbitrum.io/rpc", "https://bold-stylish-sunset.arbitrum-sepolia.quiknode.pro/c7458b060f5d275a78742ec02614db8deaecd453/"]
 }

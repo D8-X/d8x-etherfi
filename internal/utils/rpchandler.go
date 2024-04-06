@@ -15,7 +15,7 @@ type RpcHandler struct {
 	mutex      *sync.Mutex
 }
 
-func (h *RpcHandler) Init(rpcUrls []string) error {
+func (h *RpcHandler) Init(rpcUrls []string, capacity int, refillRate float64) error {
 	h.RpcClients = make([]*ethclient.Client, 0)
 	for _, url := range rpcUrls {
 		rpc, err := ethclient.Dial(url)
@@ -31,7 +31,7 @@ func (h *RpcHandler) Init(rpcUrls []string) error {
 	h.mutex = new(sync.Mutex)
 	h.Buckets = make(map[*ethclient.Client]*TokenBucket, len(h.RpcClients))
 	for _, rpc := range h.RpcClients {
-		h.Buckets[rpc] = NewTokenBucket(5, 5)
+		h.Buckets[rpc] = NewTokenBucket(capacity, refillRate)
 	}
 	return nil
 }

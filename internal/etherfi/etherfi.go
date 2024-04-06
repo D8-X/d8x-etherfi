@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/D8-X/d8x-etherfi/internal/env"
+	"github.com/D8-X/d8x-etherfi/internal/filterer"
 	"github.com/D8-X/d8x-etherfi/internal/utils"
 	"github.com/D8-X/d8x-futures-go-sdk/pkg/d8x_futures"
 	d8xutils "github.com/D8-X/d8x-futures-go-sdk/utils"
@@ -22,6 +23,7 @@ import (
 
 type App struct {
 	Db               *sql.DB
+	Genesis          uint64 // starting block when no data
 	PerpProxy        common.Address
 	PoolShareTknAddr common.Address
 	PoolTknAddr      common.Address
@@ -29,7 +31,7 @@ type App struct {
 	PerpIds          []int32 // relevant perpetual ids
 	PoolTknDecimals  uint8
 	RpcMngr          utils.RpcHandler
-	FlipsideKey      string
+	Filterer         *filterer.Filterer
 	Mutex            sync.Mutex
 	Sdk              *d8x_futures.SdkRO
 }
@@ -62,6 +64,7 @@ func NewApp(v *viper.Viper) (*App, error) {
 
 	app := App{
 		PerpProxy:        config.PerpAddr,
+		Genesis:          config.Genesis,
 		PoolId:           uint16(config.PoolId),
 		PerpIds:          perpIds,
 		PoolShareTknAddr: shareTkn,
@@ -72,7 +75,12 @@ func NewApp(v *viper.Viper) (*App, error) {
 	if app.PoolShareTknAddr == (common.Address{}) || app.PoolTknAddr == (common.Address{}) {
 		return nil, errors.New("invalid token address")
 	}
-	err = app.RpcMngr.Init(config.RpcUrls)
+	f, err := filterer.NewFilterer(config.RpcUrlsFltr, config.PerpAddr, app.PoolShareTknAddr)
+	if err != nil {
+		return nil, errors.New("failed to create filterer:" + err.Error())
+	}
+	app.Filterer = f
+	err = app.RpcMngr.Init(config.RpcUrls, 5, 5)
 	if err != nil {
 		return nil, err
 	}
@@ -82,26 +90,20 @@ func NewApp(v *viper.Viper) (*App, error) {
 	}
 	app.PoolTknDecimals = dec
 
-	app.FlipsideKey = v.GetString(env.FLIPSIDE_API_KEY)
-	if app.FlipsideKey == "" {
-		return nil, errors.New("no flipside key found")
-	}
 	return &app, nil
 }
 
+// Balances responds to the balance query. Precondition: event data
+// has been gathered up to the requested block
 func (app *App) Balances(req utils.APIBalancesPayload) (utils.APIBalancesResponse, error) {
+
 	addr := req.Addresses
 	var err error
 	if len(addr) == 0 {
 		// user did not provide any addresses, that means the entire
 		// holder universe must be queried
-		// 1. Update token holders via flipside query
-		err = app.refreshReceivers(req.BlockNumber)
-		if err != nil {
-			return utils.APIBalancesResponse{}, err
-		}
-		// 2. Get list of all token holders
-		addr, err = app.dbGetTokenHolders(req.BlockNumber)
+		// Get list of all token holders
+		addr, err = app.dbGetShareTokenHolders(req.BlockNumber)
 		if err != nil {
 			return utils.APIBalancesResponse{}, err
 		}
@@ -262,7 +264,9 @@ func (app *App) queryShareTknSupply(blockNumber int64, rpc *ethclient.Client) (*
 	return total, nil
 }
 
-func (app *App) dbGetTokenHolders(blockNum int64) ([]string, error) {
+// dbGetShareTokenHolders looks for all addresses that have
+// ever received a pool share token up to the given block
+func (app *App) dbGetShareTokenHolders(blockNum int64) ([]string, error) {
 
 	query := `SELECT distinct(addr) FROM receivers where from_block <= $1`
 	rows, err := app.Db.Query(query, blockNum)
@@ -279,34 +283,17 @@ func (app *App) dbGetTokenHolders(blockNum int64) ([]string, error) {
 	return addr, nil
 }
 
-// refreshReceivers ensures we collected all current and past holders of the share token,
-// up to the given block number
-func (app *App) refreshReceivers(toBlockNumber int64) error {
-	// prevent overlapping queries via flipside for block numbers
-	app.Mutex.Lock()
-	defer app.Mutex.Unlock()
-
-	fromBlock := app.DbGetStartBlock()
-	if toBlockNumber >= fromBlock {
-		// we need to make a query to refresh the token holder addresses
-		fsSet, err := app.flipsideGetAddresses(fromBlock, toBlockNumber)
-		if err != nil {
-			return err
-		}
-		//fmt.Println(fsSet)
-		err = app.DBInsertReceivers(fsSet, fromBlock, toBlockNumber)
-		if err != nil {
-			return errors.New("failed inserting flipside result to DB:" + err.Error())
-		}
-	}
-	return nil
+// DBGetLatestBlock looks for the last block for which data has been
+// collected for both the delegation and transfer events
+func (app *App) DBGetLatestBlock() uint64 {
+	return min(app.DbGetDelegateStartBlock(), app.DbGetReceiverStartBlock())
 }
 
 // DbGetStartBlock looks up the latest block for which
 // we have stored receiver addresses
-func (app *App) DbGetStartBlock() int64 {
+func (app *App) DbGetReceiverStartBlock() uint64 {
 	query := `SELECT coalesce(max(to_block),0) FROM receivers`
-	var block int64
+	var block uint64
 	err := app.Db.QueryRow(query).Scan(&block)
 	if err == sql.ErrNoRows {
 		return block
@@ -315,27 +302,64 @@ func (app *App) DbGetStartBlock() int64 {
 		slog.Error("Error for DbGetStartBlock" + err.Error())
 		return block
 	}
-	return max(191382586, block+1)
+	return max(app.Genesis, block+1)
 }
 
-// DBInsertReceivers inserts the results FSResultSet into the database
-func (app *App) DBInsertReceivers(fsSet *utils.FSResultSet, fromBlock, toBlock int64) error {
+// DbGetStartBlock looks up the latest block for which
+// we have stored receiver addresses
+func (app *App) DbGetDelegateStartBlock() uint64 {
+	query := `SELECT coalesce(max(to_block),0) FROM delegates`
+	var block uint64
+	err := app.Db.QueryRow(query).Scan(&block)
+	if err == sql.ErrNoRows {
+		return block
+	}
+	if err != nil {
+		slog.Error("Error for DbGetStartBlock" + err.Error())
+		return block
+	}
+	return max(app.Genesis, block+1)
+}
+
+// DBInsertReceivers inserts the results FSResultSet for flipsGetPoolShrTknHolders into the database
+func (app *App) DBInsertReceivers(transfers []interface{}, toBlock uint64) error {
 	// Prepare the insert statement
-	stmt, err := app.Db.Prepare("INSERT INTO receivers(addr, from_block, to_block, pool_tkn) VALUES($1, $2, $3, $4)")
+	stmt, err := app.Db.Prepare("INSERT INTO receivers(addr, block, to_block, pool_tkn, chain_id) VALUES($1, $2, $3, $4, $5)")
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
+	chainId := app.Sdk.ChainConfig.ChainId
 	tkn_addr := app.PoolShareTknAddr.Hex()
 	// Insert each address
-	for _, row := range fsSet.Rows {
-		addr := row.([]interface{})[0]
-		_, err := stmt.Exec(addr, fromBlock, toBlock, tkn_addr)
+	for _, row := range transfers {
+		transfer := row.(filterer.Transfer)
+		_, err := stmt.Exec(transfer.To, transfer.BlockNr, toBlock, tkn_addr, chainId)
 		if err != nil {
 			return err
 		}
 	}
 
+	return nil
+}
+
+// DBInsertDelegates inserts the delegate array into the database
+func (app *App) DBInsertDelegates(delegates []interface{}, toBlock uint64) error {
+	// Prepare the insert statement
+	stmt, err := app.Db.Prepare("INSERT INTO delegates(addr, delegate, block, index, to_block, chain_id) VALUES($1, $2, $3, $4, $5, $6)")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	chainId := app.Sdk.ChainConfig.ChainId
+	// Insert each event
+	for _, row := range delegates {
+		dlgt := row.(filterer.Delegate)
+		_, err := stmt.Exec(dlgt.Addr, dlgt.Delegate, dlgt.BlockNr, dlgt.Index, toBlock, chainId)
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

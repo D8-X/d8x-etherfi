@@ -47,9 +47,11 @@ type Config struct {
 }
 
 type ConfigFile struct {
-	ChainId int64    `json:"chainId"`
-	PoolId  int32    `json:"poolId"`
-	RpcUrls []string `json:"rpcUrl"`
+	ChainId     int64    `json:"chainId"`
+	PoolId      int32    `json:"poolId"`
+	Genesis     uint64   `json:"genesisBlock"`
+	RpcUrls     []string `json:"rpcUrl"`
+	RpcUrlsFltr []string `json:"rpcUrlFilterer"`
 }
 
 func LoadConfig(filePath string) (Config, error) {

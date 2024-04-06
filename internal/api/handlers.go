@@ -61,6 +61,13 @@ func onBalances(w http.ResponseWriter, r *http.Request, app *etherfi.App) {
 			return
 		}
 	}
+	lb := app.DBGetLatestBlock()
+	if uint64(req.BlockNumber) > lb {
+		msg := fmt.Sprintf("queried block %d but only %d available", req.BlockNumber, lb)
+		slog.Error(msg)
+		http.Error(w, string(formatError("requested block not available")), http.StatusInternalServerError)
+		return
+	}
 	res, err := app.Balances(req)
 	if err != nil {
 		slog.Error("Could not determine balances:" + err.Error())
