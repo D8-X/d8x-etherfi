@@ -110,6 +110,9 @@ func (app *App) QueryTraderBalances(blockNumber *big.Int) (map[string]*big.Int, 
 		// query all active addresses in the given perp with re-trying on rpc failure
 		traders, err := app.queryActiveAddr(opts, perpId)
 		if err != nil {
+			if err.Error() == "no contract code at given address" {
+				return nil, big.NewInt(0), nil
+			}
 			return nil, nil, err
 		}
 

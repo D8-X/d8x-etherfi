@@ -238,6 +238,9 @@ func retryQuery(blockNumber uint64, rpcManager *utils.RpcHandler, queryFunc func
 		if err == nil {
 			break
 		}
+		if err.Error() == "no contract code at given address" {
+			return big.NewInt(0), nil
+		}
 		slog.Info("query failed, retrying")
 	}
 	return result, err
@@ -253,7 +256,7 @@ func (app *App) QueryLpBalances(addrs []string, blockNumber uint64) ([]*big.Int,
 		return nil, nil, err
 	}
 	if total.Cmp(big.NewInt(0)) == 0 {
-		return nil, nil, nil
+		return nil, total, nil
 	}
 
 	var balcs []*big.Int
@@ -275,6 +278,9 @@ func (app *App) QueryLpBalances(addrs []string, blockNumber uint64) ([]*big.Int,
 // AttributeLpBalances attributes WEETH to LPs based on pool-available funds
 // We supply the total trader margin account balance 'traderTotal' to this function
 func (app *App) attributeLpBalances(balcs []*big.Int, shTknTotal *big.Int, traderTotal *big.Int, blockNumber uint64) ([]*big.Int, error) {
+	if shTknTotal.Cmp(big.NewInt(0)) == 0 {
+		return nil, nil
+	}
 	// weeth pool balance:
 	var poolBalance *big.Int
 	poolBalance, err := retryQuery(blockNumber, &app.RpcMngr, app.queryPoolTknTotalBalance)
@@ -331,7 +337,8 @@ func (app *App) queryShareTknSupply(blockNumber uint64, rpc *ethclient.Client) (
 	b := big.NewInt(int64(blockNumber))
 	total, err := QueryTokenTotalSupply(shareTkn, b)
 	if err != nil {
-		slog.Error("queryBalances:" + err.Error())
+		msg := fmt.Sprintf("queryBalances for token %s failed at block %d: %s", app.PoolShareTknAddr.Hex(), blockNumber, err.Error())
+		slog.Error(msg)
 		return nil, err
 	}
 

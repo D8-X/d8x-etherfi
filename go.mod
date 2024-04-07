@@ -3,7 +3,7 @@ module github.com/D8-X/d8x-etherfi
 go 1.22.1
 
 require (
-	github.com/D8-X/d8x-futures-go-sdk v0.4.4
+	github.com/D8-X/d8x-futures-go-sdk v0.4.5
 	github.com/ethereum/go-ethereum v1.13.14
 	github.com/forta-network/go-multicall v0.0.0-20230701154355-9467c4ddaa83
 	github.com/go-chi/chi/v5 v5.0.12
