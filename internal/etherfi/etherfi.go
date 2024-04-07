@@ -108,23 +108,63 @@ func (app *App) Balances(req utils.APIBalancesPayload) (utils.APIBalancesRespons
 			return utils.APIBalancesResponse{}, err
 		}
 	}
-	traderBalcs, total, err := app.QueryTraderBalances(big.NewInt(int64(req.BlockNumber)))
-	if err != nil {
-		slog.Error("Unable to get trader balances:" + err.Error())
-		return utils.APIBalancesResponse{}, err
+	time0 := time.Now()
+	type TraderChan struct {
+		TraderBal map[string]*big.Int
+		Total     *big.Int
 	}
-	err = app.reassignTraderBalances(traderBalcs, req.BlockNumber)
-	if err != nil {
-		return utils.APIBalancesResponse{}, err
+	type LpChan struct {
+		ShTknBal   []*big.Int
+		ShTknTotal *big.Int
 	}
-	fmt.Println("found ", len(traderBalcs), "traders")
-	lpBalcs, err := app.QueryLpBalances(addr, total, req.BlockNumber)
+	errChan := make(chan error)
+	traderChan := make(chan TraderChan)
+	lpChan := make(chan LpChan)
+	go func() {
+		traderBalcs, total, err := app.QueryTraderBalances(big.NewInt(int64(req.BlockNumber)))
+		if err != nil {
+			slog.Error("Unable to get trader balances:" + err.Error())
+			errChan <- err
+		}
+		err = app.reassignTraderBalances(traderBalcs, req.BlockNumber)
+		if err != nil {
+			errChan <- err
+		}
+		traderChan <- TraderChan{TraderBal: traderBalcs, Total: total}
+	}()
+
+	go func() {
+		lpBalcs, shTknTot, err := app.QueryLpBalances(addr, req.BlockNumber)
+		if err != nil {
+			errChan <- err
+		}
+		lpChan <- LpChan{ShTknBal: lpBalcs, ShTknTotal: shTknTot}
+	}()
+
+	var t TraderChan
+	var lp LpChan
+	for i := 0; i < 2; i++ {
+		select {
+		case t = <-traderChan:
+			fmt.Println("found ", len(t.TraderBal), "traders")
+		case lp = <-lpChan:
+			// Use lpBalcs
+			fmt.Println("found ", len(lp.ShTknBal), "LPs")
+		case err := <-errChan:
+			if err != nil {
+				return utils.APIBalancesResponse{}, err
+			}
+		}
+	}
+	// attribute lp balances based on totals
+	lpBal, err := app.attributeLpBalances(lp.ShTknBal, lp.ShTknTotal, t.Total, req.BlockNumber)
 	if err != nil {
 		return utils.APIBalancesResponse{}, err
 	}
 	// combine balances. If addresses were provided we report the balance for each of those addresses,
 	// even if zero.
-	balances := combineBalances(addr, len(req.Addresses) > 0, lpBalcs, traderBalcs, app.PoolTknDecimals)
+	balances := combineBalances(addr, len(req.Addresses) > 0, lpBal, t.TraderBal, app.PoolTknDecimals)
+	fmt.Println("\ntime elapsed = ", time.Since(time0))
 	var r utils.APIBalancesResponse
 	r.Result = balances
 	// create
@@ -203,27 +243,19 @@ func retryQuery(blockNumber uint64, rpcManager *utils.RpcHandler, queryFunc func
 	return result, err
 }
 
-// QueryLpBalances gets the attributed WEETH balances of sharepooltoken holders with given addresses
-// We supply the total trader margin account balance 'traderTotal' to this function
-func (app *App) QueryLpBalances(addrs []string, traderTotal *big.Int, blockNumber uint64) ([]*big.Int, error) {
+// QueryLpBalances gets the share-token balances of given addresses
+// also returns the total share token supply
+func (app *App) QueryLpBalances(addrs []string, blockNumber uint64) ([]*big.Int, *big.Int, error) {
 	var err error
 	var total *big.Int
 	total, err = retryQuery(blockNumber, &app.RpcMngr, app.queryShareTknSupply)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if total.Cmp(big.NewInt(0)) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 
-	// weeth pool balance:
-	var poolBalance *big.Int
-	poolBalance, err = retryQuery(blockNumber, &app.RpcMngr, app.queryPoolTknTotalBalance)
-	if err != nil {
-		return nil, err
-	}
-	poolBalance = new(big.Int).Sub(poolBalance, traderTotal)
-	// attributed WEETH equals shareTknBal/totalShareTknSupply * (poolBalance-traderTotal)
 	var balcs []*big.Int
 	for trial := 0; trial < 3; trial++ {
 		rpc := app.RpcMngr.GetNextRpc()
@@ -232,11 +264,25 @@ func (app *App) QueryLpBalances(addrs []string, traderTotal *big.Int, blockNumbe
 		if err == nil {
 			break
 		}
-		time.Sleep(5 * time.Second)
+		time.Sleep(2 * time.Second)
 	}
+	if err != nil {
+		return nil, nil, err
+	}
+	return balcs, total, nil
+}
+
+// AttributeLpBalances attributes WEETH to LPs based on pool-available funds
+// We supply the total trader margin account balance 'traderTotal' to this function
+func (app *App) attributeLpBalances(balcs []*big.Int, shTknTotal *big.Int, traderTotal *big.Int, blockNumber uint64) ([]*big.Int, error) {
+	// weeth pool balance:
+	var poolBalance *big.Int
+	poolBalance, err := retryQuery(blockNumber, &app.RpcMngr, app.queryPoolTknTotalBalance)
 	if err != nil {
 		return nil, err
 	}
+	poolBalance = new(big.Int).Sub(poolBalance, traderTotal)
+	// attributed WEETH equals shareTknBal/totalShareTknSupply * (poolBalance-traderTotal)
 	balances := make([]*big.Int, 0, len(balcs))
 	for _, bal := range balcs {
 		b := big.NewInt(0)
@@ -245,7 +291,7 @@ func (app *App) QueryLpBalances(addrs []string, traderTotal *big.Int, blockNumbe
 			continue
 		}
 		b = b.Mul(bal, poolBalance)
-		b = b.Div(b, total)
+		b = b.Div(b, shTknTotal)
 		// b is in units of the poolTkn (WEETH)
 		balances = append(balances, b)
 	}
