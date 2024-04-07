@@ -142,6 +142,8 @@ func (app *App) QueryTraderBalances(blockNumber *big.Int) (map[string]*big.Int, 
 	return bal, tot, nil
 }
 
+// queryAvailCash queries via multicall the available cash for the traders in the addrs slice.
+// Retries on RPC failure.
 func (app *App) queryAvailCash(opts *bind.CallOpts, perpId int32, addrs []common.Address) ([]*big.Int, error) {
 	id := big.NewInt(int64(perpId))
 	var cash []*big.Int

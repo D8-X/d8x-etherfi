@@ -10,7 +10,34 @@ Etherfi Integration
 ## GET Endpoint `/contracts`
 
 - GET endpoint with no arguments
-- Returns the relevant contracts that are directly holding WEETH
+- Returns the relevant contracts that are directly holding WEETH, including the WEETH balance
+- optional argument: blockNumber
+
+Response example:
+
+```
+{
+  "holderContracts": [
+    "0x2163cf2f1B7c331C0C757E068D00eFC9A707A1D7"
+  ],
+  "balance": [1216.55474202954],
+  "status": "ok"
+}
+```
+
+Balances are ordered in line with holderContracts and are provided as floating point
+numbers. The status can be different from ok, if the RPC request to get
+the balances failed:
+
+```
+{
+  "holderContracts": [
+    "0x2163cf2f1B7c331C0C757E068D00eFC9A707A1D7"
+  ],
+  "balance": [],
+  "status": "balance unavailable"
+}
+```
 
 ## POST Endpoint `/balances`
 
@@ -27,7 +54,7 @@ Payload example:
 }
 ```
 
-Result example:
+Response example:
 The `effective_balance` is provided as a floating point number.
 
 ```

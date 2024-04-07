@@ -5,20 +5,62 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math/big"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/D8-X/d8x-etherfi/internal/etherfi"
 	"github.com/D8-X/d8x-etherfi/internal/utils"
 )
 
-func onHolderContracts(w http.ResponseWriter, app *etherfi.App) {
+func onHolderContracts(w http.ResponseWriter, r *http.Request, app *etherfi.App) {
+	blockReq := r.URL.Query().Get("blockNumber")
+	var block *big.Int
+	if blockReq != "" {
+		b, err := strconv.Atoi(blockReq)
+		if err != nil {
+			slog.Error("error in onHolderContracts")
+			errMsg := "invalid block number"
+			http.Error(w, string(formatError(errMsg)), http.StatusBadRequest)
+			return
+		}
+		block = big.NewInt(int64(b))
+	}
+
 	type response struct {
-		HolderContracts []string `json:"holderContracts"`
+		HolderContracts []string  `json:"holderContracts"`
+		Balance         []float64 `json:"balance"`
+		Status          string    `json:"status"`
 	}
 	res := response{
 		HolderContracts: []string{app.PerpProxy.Hex()},
+		Status:          "ok",
+	}
+	res.Balance = make([]float64, 0, len(res.HolderContracts))
+
+	client := app.RpcMngr.GetNextRpc()
+	app.RpcMngr.WaitForToken(client)
+	var bal []*big.Int
+	var err error
+	for trial := 0; trial < 3; trial++ {
+		rpc := app.RpcMngr.GetNextRpc()
+		app.RpcMngr.WaitForToken(rpc)
+		bal, err = etherfi.QueryMultiTokenBalance(client, strings.ToLower(app.PoolTknAddr.Hex()), res.HolderContracts, block)
+		if err == nil {
+			break
+		}
+		slog.Info("onHolderContracts: QueryMultiTokenBalance unavailable, retrying")
+		time.Sleep(2 * time.Second)
+	}
+	if err != nil {
+		slog.Error("onHolderContracts:" + err.Error())
+		res.Status = "balance unavailable"
+	} else {
+		for k := range res.HolderContracts {
+			res.Balance = append(res.Balance, utils.DecNToFloat(bal[k], app.PoolTknDecimals))
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	jsonResponse, err := json.Marshal(res)
