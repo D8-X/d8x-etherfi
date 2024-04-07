@@ -32,6 +32,13 @@ func Run() {
 		slog.Error("Error:" + err.Error())
 		return
 	}
+	fmt.Println("\nApp:")
+	fmt.Println("proxy address:", app.PerpProxy.Hex())
+	fmt.Println("pool id:", app.PoolId)
+	fmt.Println("pool token:", app.Sdk.Info.Pools[app.PoolId-1].PoolMarginSymbol)
+	fmt.Println("pool token address:", app.PoolTknAddr.Hex())
+	fmt.Println("share token address:", app.PoolShareTknAddr.Hex())
+	fmt.Printf("--\n\n")
 	// connect db before running migrations
 	if err := app.ConnectDB(v.GetString(env.DATABASE_DSN)); err != nil {
 		slog.Error("connecting to db", "error", err)

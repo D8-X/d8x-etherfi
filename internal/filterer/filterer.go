@@ -114,11 +114,14 @@ func (F *Filterer) FilterEvents(eventType EventType, startBlock, endBlock uint64
 		return nil, 0, errors.New("endblock must be after startblock")
 	}
 	var ctrct interface{}
+	var name string
 	switch eventType {
 	case SetDelegateEvent:
 		ctrct, err = d8xcontracts.NewIPerpetualManager(F.PerpProxy, client)
+		name = "delegates"
 	case TokenTransferEvent:
 		ctrct, err = d8xcontracts.NewErc20(F.PoolShareTknAddr, client)
+		name = "transfers"
 	default:
 		return nil, 0, errors.New("unsupported event type")
 	}
@@ -141,7 +144,7 @@ func (F *Filterer) FilterEvents(eventType EventType, startBlock, endBlock uint64
 		for {
 			endBlock := startBlock + deltaBlock
 			if reportCount%100 == 0 {
-				msg := fmt.Sprintf("Reading delegates from onchain: %.0f%%", 100-100*float64(nowBlock-startBlock)/pathLen)
+				msg := fmt.Sprintf("Reading %s from onchain: %.0f%%", name, 100-100*float64(nowBlock-startBlock)/pathLen)
 				slog.Info(msg)
 			}
 			// Create an event iterator for events
