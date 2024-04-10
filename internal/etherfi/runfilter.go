@@ -13,7 +13,7 @@ func (app *App) RunFilter() {
 	slog.Info("Filter for events")
 	go func() {
 		defer wg.Done()
-		delegateBlock := app.DbGetDelegateStartBlock()
+		delegateBlock := app.DbGetDelegateStartBlock() + 1
 		delegates, upToBlockD, err := app.Filterer.FilterDelegateEvts(delegateBlock, 0)
 		if err != nil {
 			slog.Error(err.Error())
@@ -25,11 +25,12 @@ func (app *App) RunFilter() {
 		if err != nil {
 			slog.Error(err.Error())
 		}
+		app.LastBlockTo[0] = upToBlockD
 	}()
 
 	go func() {
 		defer wg.Done()
-		transferBlock := app.DbGetShTknTransferStartBlock()
+		transferBlock := app.DbGetShTknTransferStartBlock() + 1
 		transfers, upToBlockT, err := app.Filterer.FilterTransferEvts(transferBlock, 0)
 		if err != nil {
 			slog.Error(err.Error())
@@ -41,6 +42,7 @@ func (app *App) RunFilter() {
 		if err != nil {
 			slog.Error(err.Error())
 		}
+		app.LastBlockTo[1] = upToBlockT
 	}()
 	wg.Wait()
 	slog.Info("Event filterer completed")

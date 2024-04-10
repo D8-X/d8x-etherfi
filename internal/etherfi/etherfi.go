@@ -34,6 +34,7 @@ type App struct {
 	Filterer         *filterer.Filterer
 	Mutex            sync.Mutex
 	Sdk              *d8x_futures.SdkRO
+	LastBlockTo      [2]uint64 // last block-to query. 0:delegates 1: transfers
 }
 
 func NewApp(v *viper.Viper) (*App, error) {

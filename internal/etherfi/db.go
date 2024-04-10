@@ -37,33 +37,39 @@ func (app *App) DBGetLatestBlock() uint64 {
 // DbGetStartBlock looks up the latest block for which
 // we have stored receiver addresses
 func (app *App) DbGetShTknTransferStartBlock() uint64 {
-	query := `SELECT coalesce(max(to_block),0) FROM sh_tkn_transfer WHERE chain_id=$1`
-	var block uint64
-	err := app.Db.QueryRow(query, app.Sdk.ChainConfig.ChainId).Scan(&block)
-	if err == sql.ErrNoRows {
-		return block
+	if app.LastBlockTo[1] == 0 {
+		query := `SELECT coalesce(max(to_block),0) FROM sh_tkn_transfer WHERE chain_id=$1`
+		var block uint64
+		err := app.Db.QueryRow(query, app.Sdk.ChainConfig.ChainId).Scan(&block)
+		if err == sql.ErrNoRows {
+			return block
+		}
+		if err != nil {
+			slog.Error("Error for DbGetStartBlock" + err.Error())
+			return block
+		}
+		app.LastBlockTo[1] = max(app.Genesis, block)
 	}
-	if err != nil {
-		slog.Error("Error for DbGetStartBlock" + err.Error())
-		return block
-	}
-	return max(app.Genesis, block+1)
+	return app.LastBlockTo[1]
 }
 
 // DbGetStartBlock looks up the latest block for which
 // we have stored receiver addresses
 func (app *App) DbGetDelegateStartBlock() uint64 {
-	query := `SELECT coalesce(max(to_block),0) FROM delegates WHERE chain_id=$1`
-	var block uint64
-	err := app.Db.QueryRow(query, app.Sdk.ChainConfig.ChainId).Scan(&block)
-	if err == sql.ErrNoRows {
-		return block
+	if app.LastBlockTo[0] == 0 {
+		query := `SELECT coalesce(max(to_block),0) FROM delegates WHERE chain_id=$1`
+		var block uint64
+		err := app.Db.QueryRow(query, app.Sdk.ChainConfig.ChainId).Scan(&block)
+		if err == sql.ErrNoRows {
+			return block
+		}
+		if err != nil {
+			slog.Error("Error for DbGetStartBlock" + err.Error())
+			return block
+		}
+		app.LastBlockTo[0] = max(app.Genesis, block)
 	}
-	if err != nil {
-		slog.Error("Error for DbGetStartBlock" + err.Error())
-		return block
-	}
-	return max(app.Genesis, block+1)
+	return app.LastBlockTo[0]
 }
 
 // DBInsertShTknTransfer inserts the results FSResultSet for flipsGetPoolShrTknHolders into the database
