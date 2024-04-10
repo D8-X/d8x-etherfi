@@ -185,11 +185,13 @@ func (app *App) reassignTraderBalances(traderBal map[string]*big.Int, block uint
 	}
 	for k, d := range delegates {
 		// re-assign
-		if _, exists := traderBal[d]; exists {
-			if _, exists := traderBal[addrs[k]]; exists {
+		if _, exists := traderBal[addrs[k]]; exists {
+			if _, exists := traderBal[d]; exists {
 				traderBal[d] = new(big.Int).Add(traderBal[d], traderBal[addrs[k]])
-				traderBal[addrs[k]] = big.NewInt(0)
+			} else {
+				traderBal[d] = traderBal[addrs[k]]
 			}
+			traderBal[addrs[k]] = big.NewInt(0)
 		}
 
 	}
