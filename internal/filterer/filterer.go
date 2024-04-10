@@ -133,7 +133,7 @@ func (F *Filterer) FilterEvents(eventType EventType, startBlock, endBlock uint64
 	var reportCount int
 	var pathLen = float64(nowBlock - startBlock)
 	// filter payments in batches of 32_768 (and decreasing) blocks to avoid RPC limit
-	deltaBlock := uint64(32_768)
+	deltaBlock := uint64(10_000)
 	for trial := 0; trial < 7; trial++ {
 		err = nil
 		if trial > 0 {
