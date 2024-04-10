@@ -7,7 +7,7 @@ CREATE TABLE if not exists "delegates" (
     "to_block" BIGINT NOT NULL,
     "chain_id" INT NOT NULL,
     "created_on" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "delegates_pkey" PRIMARY KEY ("addr", "block")
+    CONSTRAINT "delegates_pkey" PRIMARY KEY ("addr", "block", "chain_id")
 );
 
 -- CreateIndex
