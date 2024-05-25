@@ -78,7 +78,7 @@ Same response as the corresponding post request `/balances`
 # Get Endpoint `etherfi-apy`
 
 Queries the endpoint of etherfi https://www.etherfi.bid/api/etherfi/apr and calculates APY
-as `adjustedAPR := lastAPR / 0.9 / (29.0 / 32.0) / 100.0`
+as `adjustedAPR := lastAPR / 0.9 / (29.0 / 32.0) / 100.0`. The value is cached for 12h.
 
 Response:
 
