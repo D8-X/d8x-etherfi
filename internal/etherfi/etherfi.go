@@ -35,6 +35,8 @@ type App struct {
 	Mutex            sync.Mutex
 	Sdk              *d8x_futures.SdkRO
 	LastBlockTo      [2]uint64 // last block-to query. 0:delegates 1: transfers
+	EtherfiAPY       float64   //APY for etherfi
+	EtherfiAPYTs     int64     //unix timestamp when etherfi APY was last queried
 }
 
 func NewApp(v *viper.Viper) (*App, error) {

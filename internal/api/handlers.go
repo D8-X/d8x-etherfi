@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"math/big"
 	"net/http"
 	"strconv"
@@ -72,6 +73,68 @@ func onHolderContracts(w http.ResponseWriter, r *http.Request, app *etherfi.App)
 	} else {
 		slog.Info("onHolderContracts request answered")
 	}
+	w.Write(jsonResponse)
+}
+
+func onEtherfiApy(w http.ResponseWriter, r *http.Request, app *etherfi.App) {
+	// Response represents the structure of the JSON response
+	type Response struct {
+		Success    bool     `json:"sucess"`
+		LatestAPRs []string `json:"latest_aprs"`
+	}
+	now := time.Now().Unix()
+	if now-app.EtherfiAPYTs > 43200 {
+		app.EtherfiAPYTs = now
+		// renew query
+		// URL of the endpoint
+		url := "https://www.etherfi.bid/api/etherfi/apr"
+
+		// Sending the GET request
+		resp, err := http.Get(url)
+		if err != nil {
+			slog.Error(fmt.Sprintf("Failed to send GET request: %v", err))
+			http.Error(w, string(formatError("etherfi endpoint unavailable")), http.StatusInternalServerError)
+			return
+		}
+		defer resp.Body.Close()
+
+		// Check if the response status code is OK
+		if resp.StatusCode != http.StatusOK {
+			slog.Error(fmt.Sprintf("Unexpected status code: %d", resp.StatusCode))
+			http.Error(w, string(formatError("etherfi endpoint unavailable")), http.StatusInternalServerError)
+			return
+		}
+
+		// Decoding the JSON response
+		var response Response
+		if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+			slog.Error(fmt.Sprintf("Failed to decode JSON response: %v", err))
+			http.Error(w, string(formatError("etherfi endpoint unavailable")), http.StatusInternalServerError)
+			return
+		}
+
+		// Extract the last APR value
+		lastAPRStr := response.LatestAPRs[len(response.LatestAPRs)-1]
+		lastAPR, err := strconv.ParseFloat(lastAPRStr, 64)
+		if err != nil {
+			slog.Error(fmt.Sprintf("Failed to convert APR to float: %v", err))
+			http.Error(w, string(formatError("etherfi endpoint returns unexpected result")), http.StatusInternalServerError)
+			return
+		}
+
+		// Adjust the APR by the given factor
+		adjustedAPR := lastAPR / 0.9 / (29.0 / 32.0) / 100.0
+
+		// Round to 2 decimal places
+		roundedAPR := math.Round(adjustedAPR*100) / 100
+		app.EtherfiAPY = roundedAPR
+	}
+	w.Header().Set("Content-Type", "application/json")
+	type Response2 struct {
+		EtherfiAPR string `json:"etherfiApy"`
+	}
+	res := Response2{EtherfiAPR: fmt.Sprintf("%.2f", app.EtherfiAPY)}
+	jsonResponse, _ := json.Marshal(res)
 	w.Write(jsonResponse)
 }
 
